@@ -1,0 +1,121 @@
+---
+title: "EvalNat"
+author: "Arthur Becerril"
+date: '2022-04-22'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+## Download packages and data
+
+```{r libs}
+library(corrplot)
+library(dplyr)
+library(psych)
+library("psych")
+library(nFactors)
+library(lattice)
+library(GPArotation)
+library(plot.matrix)
+library("FactoMineR")
+library("factoextra")
+library(ggbiplot)
+library(lavaan)
+library(stringr)
+library(semPlot)
+library(stats)
+library(caret)
+library(nnet)
+library(RColorBrewer)
+library(correlation)
+
+rawData <- read.csv(file = './data/data_depp_clean3.csv')
+rawData <- rawData[rawData$Taille_Classe < 50,]
+
+rawThresholds <- read.csv(file = './data/seuils.csv')
+```
+
+```{r}
+calc_T_F_PR <- function(x, Train, Outcome, Threshold){
+  y <- matrix(nrow =  2, ncol = length(x))
+  for(k in 1:length(x)){
+    echcT1 <- ifelse(Train <= x[k], 1, 0)
+    echcT2 <- ifelse(Outcome <= Threshold, 1, 0)
+    y[1, k] <- (t(echcT1)%*%(1-echcT2))/sum((1-echcT2))
+    y[2, k] <- (t(echcT1)%*%echcT2)/sum(echcT2)
+  }
+  return(y)
+}
+```
+
+```{r}
+plotRoc <- function(dataTrain, dataOutcome, whichThreshold = 1, square = TRUE, seuilsDEPP = TRUE, log_pred = TRUE){
+  if(square){
+    par(pty="s")
+  }
+  cols <- colorRampPalette(brewer.pal(9, "Paired"))(ncol(dataTrain))
+  
+  for(j in 1:ncol(dataOutcome)){
+    plot(NULL, xlim=c(0,1), ylim=c(0,1), ylab="True positive rate", xlab="False positive rate", main = names(dataOutcome)[j])
+    for(i in 1:ncol(dataTrain)){
+      xAx <- sort(unique(dataTrain[, i]))
+      roc <- calc_T_F_PR(xAx, dataTrain[, i], dataOutcome[, j], rawThresholds[whichThreshold, which(names(rawThresholds) == names(dataOutcome)[j])])
+      FPR <- roc[1,]
+      TPR <- roc[2,]
+      points(FPR, TPR, col = cols[i])
+      lines(FPR, TPR, xlim=range(FPR), ylim=range(TPR), pch=16, col = cols[i])
+      
+      if(seuilsDEPP){
+        rocSeuilBesoin <- calc_T_F_PR(rawThresholds[1, which(names(rawThresholds) == names(dataTrain)[i])], dataTrain[, i], dataOutcome[, j], rawThresholds[whichThreshold, which(names(rawThresholds) == names(dataOutcome)[j])])
+        points(rocSeuilBesoin[1,], rocSeuilBesoin[2,], col = "black", pch = 15)
+        
+        rocSeuilFragile <- calc_T_F_PR(rawThresholds[2, which(names(rawThresholds) == names(dataTrain)[i])], dataTrain[, i], dataOutcome[, j], rawThresholds[whichThreshold, which(names(rawThresholds) == names(dataOutcome)[j])])
+        points(rocSeuilFragile[1,], rocSeuilFragile[2,], col = "purple", pch = 15)
+      }
+      
+      if(log_pred){
+        dataRegg <- rawData[, grepl("T1", names(rawData))]
+        dataRegg$outcome <- ifelse(dataOutcome[, j] <= rawThresholds[whichThreshold, which(names(rawThresholds) == names(dataOutcome)[j])], 1, 0)
+        logistic_model <- glm(outcome ~ ., family = binomial(), dataRegg)
+        
+        for(k in seq(0, 1, length.out = 40)){
+          echcT1 <- ifelse(logistic_model$fitted.values >= k, 1, 0)
+          echcT2 <- dataRegg$outcome
+          points((t(echcT1)%*%(1-echcT2))/sum((1-echcT2)), (t(echcT1)%*%echcT2)/sum(echcT2), col = "red", pch = 16)
+        }
+        
+        dataRegg <- rawData[, grepl("T1|T2", names(rawData))]
+        dataRegg$IPS_Etab_CP <- rawData$IPS_Etab_CP
+        dataRegg$IPS_Etab_CE1 <- rawData$IPS_Etab_CE1
+        dataRegg$Sexe <- ifelse(rawData$Sexe == "Boys", 1, -1)
+        dataRegg$Taille_Classe <- rawData$Taille_Classe
+        dataRegg$Age_CP <- rawData$Age_CP
+        dataRegg$outcome <- ifelse(dataOutcome[, j] <= rawThresholds[whichThreshold, which(names(rawThresholds) == names(dataOutcome)[j])], 1, 0)
+        logistic_model <- glm(outcome ~ ., family = binomial(), dataRegg)
+        
+        for(k in seq(0, 1, length.out = 40)){
+          echcT1 <- ifelse(logistic_model$fitted.values >= k, 1, 0)
+          echcT2 <- dataRegg$outcome
+          points((t(echcT1)%*%(1-echcT2))/sum((1-echcT2)), (t(echcT1)%*%echcT2)/sum(echcT2), col = "brown", pch = 16)
+        }
+      }
+    }
+    lines(c(0,1), c(0,1))
+    
+    if(seuilsDEPP){
+      legend('bottomright',legend = append(names(dataTrain), c("À besoins", "Fragiles")), col = append(cols, c("black", "purple")), pch = append(rep(c(1), times = ncol(dataTrain)), c(15, 15)), ncol = 2, cex = 0.8)
+    }else{
+      legend('bottomright',legend = names(dataTrain), col = cols, pch = rep(c(1), times = ncol(dataTrain)), ncol = 2, cex = 0.8)
+    }
+  }
+}
+```
+
+
+
+
+
